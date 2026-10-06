@@ -33,6 +33,10 @@
     <!-- FontAwesome 6 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Firebase (Auth + Firestore) -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     
     <!-- Google Font Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -52,6 +56,10 @@
         .privacy-hidden { display: none !important; }
         .employee-only-hide { }
         body.employee-mode .employee-hide { display: none !important; }
+        @media (max-width: 768px) {
+            input, select, textarea, button { font-size: 16px; } /* evita zoom iOS */
+            .touch-target { min-height: 44px; min-width: 44px; }
+        }
         body.employee-mode .employee-show { display: block !important; }
         body.employee-mode #employeeModeBadge.employee-show { display: flex !important; }
         /* Mobile polish */
@@ -160,6 +168,11 @@
                         <i class="fa-solid fa-cloud-arrow-up animate-pulse"></i>
                         <span>Guardado Automático</span>
                     </div>
+                    <button type="button" id="cloudStatusBtn" onclick="openCloudModal()" title="Sincronização na cloud"
+                        class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-white transition">
+                        <i class="fa-solid fa-cloud" id="cloudStatusIcon"></i>
+                        <span id="cloudStatusText" class="hidden sm:inline">Cloud: —</span>
+                    </button>
 
                     <button id="diskStatusBadge" onclick="openBackupModal()" title="Estado do backup no disco"
                         class="employee-hide hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-white transition">
@@ -268,12 +281,6 @@
         </div>
     </header>
 
-    <!-- EMPLOYEE BANNER -->
-    <div id="employeeBanner" class="hidden employee-show no-print bg-orange-950/80 border-b border-orange-500/30 px-4 py-2 text-center text-xs text-orange-200">
-        <i class="fa-solid fa-user-tie mr-1"></i>
-        <strong>Modo Funcionário</strong> — Inventário, Agenda e Simulador.
-        <span class="text-orange-400/80">Custos e definições ocultos.</span>
-    </div>
 
     <!-- MAIN CONTENT CONTAINER -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -1123,6 +1130,50 @@
     <div id="printWorkOrder" class="hidden print:block"></div>
 
     
+
+    <!-- MODAL CLOUD / LOGIN -->
+    <div id="cloudModal" class="fixed inset-0 z-[80] hidden bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-[#131b2e] border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-900/60">
+                <h3 class="text-lg font-bold text-white"><i class="fa-solid fa-cloud text-sky-400 mr-2"></i>Sincronização Cloud</h3>
+                <button type="button" onclick="closeCloudModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="p-5 space-y-4 text-sm">
+                <p class="text-xs text-slate-400">Inicie sessão para partilhar inventário, agenda e vendas entre PC e telemóvel (mesmo login em todos os dispositivos).</p>
+                <div id="cloudLoggedOut" class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Email</label>
+                        <input type="email" id="cloudEmail" autocomplete="username" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white" placeholder="oficina@email.com">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+                        <input type="password" id="cloudPassword" autocomplete="current-password" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white" placeholder="••••••••">
+                    </div>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="cloudSignIn()" class="flex-1 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold">Entrar</button>
+                        <button type="button" onclick="cloudSignUp()" class="flex-1 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold">Criar conta</button>
+                    </div>
+                    <p class="text-[11px] text-slate-500">Primeira vez: “Criar conta” com o email da oficina. Depois use o mesmo em todos os aparelhos.</p>
+                </div>
+                <div id="cloudLoggedIn" class="hidden space-y-3">
+                    <div class="rounded-xl bg-emerald-950/40 border border-emerald-500/30 p-3 text-xs text-emerald-200">
+                        <div class="font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>Sessão ativa</div>
+                        <div id="cloudUserEmail" class="mt-1 text-emerald-300/90 break-all"></div>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <button type="button" onclick="cloudPull(true)" class="w-full px-4 py-2 rounded-xl bg-sky-600/20 border border-sky-500/40 text-sky-200 text-xs font-semibold"><i class="fa-solid fa-cloud-arrow-down mr-1.5"></i>Descarregar da cloud</button>
+                        <button type="button" onclick="cloudPush(true)" class="w-full px-4 py-2 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-200 text-xs font-semibold"><i class="fa-solid fa-cloud-arrow-up mr-1.5"></i>Enviar para a cloud</button>
+                        <button type="button" onclick="cloudSignOut()" class="w-full px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-semibold">Terminar sessão</button>
+                    </div>
+                    <p id="cloudLastSync" class="text-[11px] text-slate-500"></p>
+                </div>
+                <div id="cloudConfigWarn" class="hidden rounded-xl bg-amber-950/40 border border-amber-500/30 p-3 text-xs text-amber-200">
+                    Configure o Firebase neste ficheiro (objeto FIREBASE_CONFIG) com os dados da Consola → Project settings → Your apps.
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- MOBILE BOTTOM NAV -->
     <nav id="mobileBottomNav" class="no-print" aria-label="Navegação móvel">
         <button type="button" data-tab="inventory" onclick="switchTab('inventory')">
@@ -1159,6 +1210,30 @@
         const STORAGE_KEY_SETTINGS = 'pneu_certo_settings_v36';
         const STORAGE_KEY_HISTORY = 'pneu_certo_stock_history_v36';
         const BACKUP_VERSION = '4.2';
+
+        // ========== FIREBASE CONFIG ==========
+        // Consola Firebase → ⚙ Project settings → Your apps → SDK setup and configuration
+        // Projeto: oficinapneucerto
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyDB7m9tBQqkRromqqTjAYSozUBF9cXBF58",
+            authDomain: "oficinapneucerto.firebaseapp.com",
+            projectId: "oficinapneucerto",
+            storageBucket: "oficinapneucerto.firebasestorage.app",
+            messagingSenderId: "378746845530",
+            appId: "1:378746845530:web:oficinapneucerto"
+        };
+        const FIREBASE_CONFIGURED = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
+        const CLOUD_DOC_PATH = 'pneucerto/main'; // documento único da oficina
+        let firebaseApp = null;
+        let firebaseAuth = null;
+        let firebaseDb = null;
+        let cloudUser = null;
+        let cloudUnsub = null;
+        let cloudPushTimer = null;
+        let cloudSyncing = false;
+        let cloudLastPushTs = 0;
+        let cloudApplyingRemote = false;
+
         const STORAGE_KEY_MOVEMENTS = 'pneu_certo_movements_v40';
         const STORAGE_KEY_AUDIT = 'pneu_certo_audit_v40';
         const STORAGE_KEY_SALES = 'pneu_certo_sales_v40';
@@ -1248,6 +1323,7 @@
 
         window.addEventListener('DOMContentLoaded', async () => {
             detectEmployeeMode();
+            initFirebaseCloud();
             loadSettings();
             loadInventory();
             loadBusinessData();
@@ -1568,6 +1644,7 @@
                 triggerAutoSaveIndicator();
                 markDataChanged();
                 writeDiskBackupIfAvailable();
+                scheduleCloudPush();
             });
         }
 
@@ -1587,6 +1664,7 @@
                 triggerAutoSaveIndicator();
                 markDataChanged();
                 writeDiskBackupIfAvailable();
+                scheduleCloudPush();
             });
         }
 
@@ -1602,6 +1680,7 @@
                 triggerAutoSaveIndicator();
                 markDataChanged();
                 writeDiskBackupIfAvailable();
+                scheduleCloudPush();
             });
         }
 
@@ -3895,6 +3974,7 @@
             triggerAutoSaveIndicator();
             markDataChanged();
             writeDiskBackupIfAvailable();
+            scheduleCloudPush();
         }
 
         function showConfirmModal(message, title = 'Confirmar', okLabel = 'Confirmar', danger = true) {
@@ -4678,6 +4758,258 @@
                     <div style="margin-top:24px;font-size:10px;color:#666;">Gerado por PneuCerto PRO · ${new Date().toLocaleString('pt-PT')}</div>
                 </div>`;
             window.print();
+        }
+
+
+        // ===================== FIREBASE CLOUD SYNC =====================
+        function initFirebaseCloud() {
+            updateCloudStatusUI();
+            if (!FIREBASE_CONFIGURED) {
+                console.warn('Firebase: configure FIREBASE_CONFIG no index.html');
+                return;
+            }
+            if (typeof firebase === 'undefined') {
+                console.warn('Firebase SDK não carregou');
+                return;
+            }
+            try {
+                firebaseApp = firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+                firebaseAuth = firebase.auth();
+                firebaseDb = firebase.firestore();
+                firebaseAuth.onAuthStateChanged(async (user) => {
+                    cloudUser = user;
+                    updateCloudStatusUI();
+                    if (user) {
+                        await cloudPull(false);
+                        startCloudListener();
+                    } else {
+                        stopCloudListener();
+                    }
+                });
+            } catch (e) {
+                console.error('Firebase init', e);
+                showToast('Erro ao iniciar Firebase: ' + (e.message || e), 'warning');
+            }
+        }
+
+        function openCloudModal() {
+            const m = document.getElementById('cloudModal');
+            if (!m) return;
+            m.classList.remove('hidden');
+            const warn = document.getElementById('cloudConfigWarn');
+            if (warn) warn.classList.toggle('hidden', FIREBASE_CONFIGURED);
+            updateCloudStatusUI();
+        }
+        function closeCloudModal() {
+            const m = document.getElementById('cloudModal');
+            if (m) m.classList.add('hidden');
+        }
+
+        function updateCloudStatusUI() {
+            const icon = document.getElementById('cloudStatusIcon');
+            const txt = document.getElementById('cloudStatusText');
+            const btn = document.getElementById('cloudStatusBtn');
+            const loggedIn = document.getElementById('cloudLoggedIn');
+            const loggedOut = document.getElementById('cloudLoggedOut');
+            const emailEl = document.getElementById('cloudUserEmail');
+            if (!FIREBASE_CONFIGURED) {
+                if (txt) txt.textContent = 'Cloud: config';
+                if (btn) btn.className = 'flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-950/40 border border-amber-500/30 text-amber-400 hover:text-white transition';
+                return;
+            }
+            if (cloudUser) {
+                if (txt) txt.textContent = 'Cloud: ON';
+                if (btn) btn.className = 'flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-950/50 border border-sky-500/30 text-sky-300 hover:text-white transition';
+                if (icon) icon.className = 'fa-solid fa-cloud';
+                if (loggedIn) loggedIn.classList.remove('hidden');
+                if (loggedOut) loggedOut.classList.add('hidden');
+                if (emailEl) emailEl.textContent = cloudUser.email || cloudUser.uid;
+            } else {
+                if (txt) txt.textContent = 'Cloud: OFF';
+                if (btn) btn.className = 'flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-white transition';
+                if (icon) icon.className = 'fa-solid fa-cloud';
+                if (loggedIn) loggedIn.classList.add('hidden');
+                if (loggedOut) loggedOut.classList.remove('hidden');
+            }
+        }
+
+        async function cloudSignIn() {
+            if (!firebaseAuth) return showToast('Firebase não configurado.', 'warning');
+            const email = document.getElementById('cloudEmail')?.value?.trim();
+            const pass = document.getElementById('cloudPassword')?.value || '';
+            if (!email || !pass) return showToast('Indique email e password.', 'warning');
+            try {
+                await firebaseAuth.signInWithEmailAndPassword(email, pass);
+                showToast('Sessão iniciada. A sincronizar…', 'success');
+            } catch (e) {
+                showToast(cloudAuthError(e), 'warning');
+            }
+        }
+
+        async function cloudSignUp() {
+            if (!firebaseAuth) return showToast('Firebase não configurado.', 'warning');
+            const email = document.getElementById('cloudEmail')?.value?.trim();
+            const pass = document.getElementById('cloudPassword')?.value || '';
+            if (!email || pass.length < 6) return showToast('Email e password (mín. 6 caracteres).', 'warning');
+            try {
+                await firebaseAuth.createUserWithEmailAndPassword(email, pass);
+                showToast('Conta criada. A enviar dados locais…', 'success');
+                await cloudPush(true);
+            } catch (e) {
+                showToast(cloudAuthError(e), 'warning');
+            }
+        }
+
+        async function cloudSignOut() {
+            stopCloudListener();
+            if (firebaseAuth) await firebaseAuth.signOut();
+            showToast('Sessão terminada. Dados locais mantêm-se neste aparelho.', 'info');
+            closeCloudModal();
+        }
+
+        function cloudAuthError(e) {
+            const c = e && e.code;
+            if (c === 'auth/user-not-found' || c === 'auth/invalid-credential') return 'Email ou password incorretos.';
+            if (c === 'auth/email-already-in-use') return 'Este email já tem conta. Use Entrar.';
+            if (c === 'auth/weak-password') return 'Password demasiado fraca (mín. 6).';
+            if (c === 'auth/invalid-email') return 'Email inválido.';
+            if (c === 'auth/operation-not-allowed') return 'Ative Email/Password em Authentication na consol Firebase.';
+            return (e && e.message) ? e.message : 'Erro de autenticação.';
+        }
+
+        function scheduleCloudPush() {
+            if (!cloudUser || !firebaseDb || cloudApplyingRemote) return;
+            clearTimeout(cloudPushTimer);
+            cloudPushTimer = setTimeout(() => cloudPush(false), 2500);
+        }
+
+        async function cloudPush(manual) {
+            if (!cloudUser || !firebaseDb) {
+                if (manual) showToast('Inicie sessão na Cloud primeiro.', 'warning');
+                return;
+            }
+            if (cloudSyncing) return;
+            cloudSyncing = true;
+            try {
+                const payload = buildFullBackupObject();
+                payload.cloudUpdatedAt = new Date().toISOString();
+                payload.cloudUpdatedBy = cloudUser.email || cloudUser.uid;
+                // Firestore limite ~1MB por documento; oficina típica cabe
+                const ref = firebaseDb.doc(CLOUD_DOC_PATH);
+                await ref.set({
+                    data: payload,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedBy: cloudUser.email || cloudUser.uid
+                }, { merge: true });
+                cloudLastPushTs = Date.now();
+                const el = document.getElementById('cloudLastSync');
+                if (el) el.textContent = 'Último envio: ' + new Date().toLocaleString('pt-PT');
+                if (manual) showToast('Dados enviados para a cloud.', 'success');
+                flashCloudSynced();
+            } catch (e) {
+                console.error(e);
+                if (manual) showToast('Erro ao enviar: ' + (e.message || e), 'warning');
+            } finally {
+                cloudSyncing = false;
+            }
+        }
+
+        async function cloudPull(manual) {
+            if (!cloudUser || !firebaseDb) {
+                if (manual) showToast('Inicie sessão na Cloud primeiro.', 'warning');
+                return;
+            }
+            try {
+                const snap = await firebaseDb.doc(CLOUD_DOC_PATH).get();
+                if (!snap.exists) {
+                    if (manual) showToast('Cloud vazia — a enviar dados deste aparelho…', 'info');
+                    await cloudPush(true);
+                    return;
+                }
+                const remote = snap.data();
+                const payload = remote && remote.data;
+                if (!payload || typeof payload !== 'object') {
+                    if (manual) showToast('Documento cloud inválido.', 'warning');
+                    return;
+                }
+                applyCloudPayload(payload);
+                if (manual) showToast('Dados descarregados da cloud.', 'success');
+                flashCloudSynced();
+            } catch (e) {
+                console.error(e);
+                if (manual) showToast('Erro ao descarregar: ' + (e.message || e), 'warning');
+            }
+        }
+
+        function applyCloudPayload(payload) {
+            cloudApplyingRemote = true;
+            try {
+                if (Array.isArray(payload.inventory)) inventory = payload.inventory;
+                if (payload.settings) settings = normalizeSettings(payload.settings);
+                if (Array.isArray(payload.movements)) movements = payload.movements;
+                if (Array.isArray(payload.auditLog)) auditLog = payload.auditLog;
+                if (Array.isArray(payload.sales)) sales = payload.sales;
+                if (Array.isArray(payload.serviceCatalog) && payload.serviceCatalog.length) serviceCatalog = payload.serviceCatalog;
+                if (Array.isArray(payload.appointments)) appointments = payload.appointments;
+                if (Array.isArray(payload.trash)) trash = payload.trash;
+                if (Array.isArray(payload.ruptureHistory)) {
+                    saveHistory(payload.ruptureHistory.map(normalizeHistoryEntry).filter(Boolean));
+                }
+                // Gravar local sem voltar a fazer push imediato
+                safeLocalStorageSet(STORAGE_KEY_INVENTORY, JSON.stringify(inventory));
+                safeLocalStorageSet(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+                safeLocalStorageSet(STORAGE_KEY_MOVEMENTS, JSON.stringify(movements));
+                safeLocalStorageSet(STORAGE_KEY_AUDIT, JSON.stringify(auditLog));
+                safeLocalStorageSet(STORAGE_KEY_SALES, JSON.stringify(sales));
+                safeLocalStorageSet(STORAGE_KEY_SERVICES, JSON.stringify(serviceCatalog));
+                safeLocalStorageSet(STORAGE_KEY_APPOINTMENTS, JSON.stringify(appointments));
+                safeLocalStorageSet('pneu_certo_trash_v41', JSON.stringify(trash));
+                saveMirrorCopy();
+                populateBrandFilter();
+                populateIndexFilter();
+                populateSettingsForm();
+                renderInventoryTable();
+                renderBrandsDatabase();
+                renderRupturesHistory();
+                renderAllBusinessModules();
+                updateKpiDashboard();
+                renderServicesCatalog();
+                renderAgenda();
+                runDedicatedSimulator();
+            } finally {
+                setTimeout(() => { cloudApplyingRemote = false; }, 500);
+            }
+        }
+
+        function startCloudListener() {
+            stopCloudListener();
+            if (!cloudUser || !firebaseDb) return;
+            cloudUnsub = firebaseDb.doc(CLOUD_DOC_PATH).onSnapshot((snap) => {
+                if (!snap.exists || cloudSyncing) return;
+                const remote = snap.data();
+                if (!remote || !remote.data) return;
+                // Evitar eco do nosso próprio push recente
+                if (Date.now() - cloudLastPushTs < 4000) return;
+                applyCloudPayload(remote.data);
+                const el = document.getElementById('cloudLastSync');
+                if (el) el.textContent = 'Atualizado de outro dispositivo: ' + new Date().toLocaleString('pt-PT');
+            }, (err) => console.warn('Cloud listener', err));
+        }
+
+        function stopCloudListener() {
+            if (typeof cloudUnsub === 'function') {
+                cloudUnsub();
+                cloudUnsub = null;
+            }
+        }
+
+        function flashCloudSynced() {
+            const btn = document.getElementById('cloudStatusBtn');
+            const txt = document.getElementById('cloudStatusText');
+            if (!btn || !txt) return;
+            btn.className = 'flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-600 text-white shadow-md transition';
+            txt.textContent = 'Cloud: Sync';
+            setTimeout(() => updateCloudStatusUI(), 1600);
         }
 
         function showToast(message, type = 'success') {
